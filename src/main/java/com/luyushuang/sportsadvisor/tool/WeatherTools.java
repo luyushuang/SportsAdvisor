@@ -12,6 +12,8 @@ import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Function;
 
 @Component
 public class WeatherTools {
@@ -53,20 +55,37 @@ public class WeatherTools {
         double[] coords;
         try {
             coords = geocoder.resolve(city);
+            System.out.println("city=" + city + ", coords: " + coords[0] + ", " + coords[1]);
         } catch (Exception e) {
             return "错误：无法解析城市坐标——" + e.getMessage();
         }
 
         // ---- 获取天气与空气质量 ----
         try {
-            Map<String, Object> weather = fetchWeather(coords, date);
-            Map<String, Object> aqi = fetchAirQuality(coords, date);
+            Map<String, Object> weather = resolveWeather(coords, date);
+            Map<String, Object> aqi = resolveAirQuality(coords, date);
 
             return formatResult(city, date, weather, aqi);
 
         } catch (Exception e) {
             return "错误：获取天气数据失败——" + e.getMessage();
         }
+    }
+
+    private final Map<String, Map<String, Object>> cacheWeather = new ConcurrentHashMap<>();
+
+    private Map<String, Object> resolveWeather(double[] coords, String date) {
+        String key = buildCoordsAndCityKey(coords, date);
+        if (!cacheWeather.containsKey(key)) {
+            Map<String, Object> result = fetchWeather(coords, date);
+            cacheWeather.put(key, result);
+        }
+
+        return cacheWeather.get(key);
+    }
+
+    private String buildCoordsAndCityKey(double[] coords, String date) {
+        return String.format("%f-%f-%s", coords[0], coords[1], date);
     }
 
     private Map<String, Object> fetchWeather(double[] coords, String date) {
@@ -79,6 +98,17 @@ public class WeatherTools {
         return restClient.get().uri(url).retrieve()
                 .body(new ParameterizedTypeReference<>() {
                 });
+    }
+
+    private final Map<String, Map<String, Object>> cacheAirQuality = new ConcurrentHashMap<>();
+
+    private Map<String, Object> resolveAirQuality(double[] coords, String date) {
+        String key = buildCoordsAndCityKey(coords, date);
+        if (!cacheAirQuality.containsKey(key)) {
+            cacheAirQuality.put(key, fetchAirQuality(coords, date));
+        }
+
+        return cacheAirQuality.get(key);
     }
 
     private Map<String, Object> fetchAirQuality(double[] coords, String date) {
