@@ -1,5 +1,6 @@
-package com.luyushuang.sportsadvisor;
+package com.luyushuang.sportsadvisor.controller;
 
+import com.luyushuang.sportsadvisor.service.RunningAdvisorService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import org.springframework.http.ResponseEntity;

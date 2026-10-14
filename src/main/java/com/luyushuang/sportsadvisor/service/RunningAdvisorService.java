@@ -1,5 +1,6 @@
-package com.luyushuang.sportsadvisor;
+package com.luyushuang.sportsadvisor.service;
 
+import com.luyushuang.sportsadvisor.tool.WeatherTools;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;

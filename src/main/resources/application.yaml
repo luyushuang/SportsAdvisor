@@ -1,0 +1,10 @@
+spring:
+  application:
+    name: SportsAdvisor
+  ai:
+    ollama:
+      base-url: http://localhost:11434
+      api-key: sk-8617d964572141eba7fd36b4c256a23c
+      chat:
+        options:
+          model: qwen2.5:7b

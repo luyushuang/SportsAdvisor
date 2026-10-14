@@ -1,4 +1,4 @@
-package com.luyushuang.sportsadvisor;
+package com.luyushuang.sportsadvisor.tool;
 
 import com.luyushuang.sportsadvisor.util.ChinaCityGeocoder;
 import org.springframework.ai.tool.annotation.Tool;

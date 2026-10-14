@@ -1,4 +1,4 @@
-package com.luyushuang.sportsadvisor;
+package com.luyushuang.sportsadvisor.exp;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
