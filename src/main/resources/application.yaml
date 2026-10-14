@@ -8,3 +8,9 @@ spring:
       chat:
         options:
           model: qwen2.5:7b
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      password:
+      database: 0
