@@ -8,6 +8,11 @@ spring:
       chat:
         options:
           model: qwen2.5:7b
+    vectorstore:
+      redis:
+        index-name: running-knowledge-index
+        prefix: "running:knowledge:"
+        initialize-schema: true
   data:
     redis:
       host: localhost
