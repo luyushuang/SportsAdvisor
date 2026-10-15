@@ -6,8 +6,13 @@ import com.luyushuang.sportsadvisor.repository.UserProfileRepository;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.stereotype.Service;
 
+import java.util.regex.Pattern;
+
 @Service
 public class ProfileAgent {
+    private static final Pattern PROFILE_KEYWORDS = Pattern.compile(
+            "岁|跑龄|跑量|公里|半马|全马|伤病|膝盖|脚|目标|成绩|配速|心率"
+    );
 
     private final ChatClient chatClient;
 
@@ -46,11 +51,24 @@ public class ProfileAgent {
      * 生产环境可以用 LLM 做结构化提取
      */
     public void updateProfileFromConversation(String userId, String userMessage) {
+        if (!PROFILE_KEYWORDS.matcher(userMessage).find()) {
+            return; // 快速跳过，不调用 LLM
+        }
+
         ProfileUpdate update = chatClient.prompt()
                 .system("""
                         从用户的消息中提取跑步相关的个人信息。
-                        只提取消息中明确提到的字段，未提到的字段返回 null。
-                        不要推测或编造信息。
+                        
+                        规则：
+                        1. 只提取消息中明确提到的字段，未提到的字段返回 null
+                        2. 不要推测、不要编造、不要从常识推断
+                        3. 如果用户说"没有伤病"，injuryHistory 返回空列表 []
+                        4. 如果用户说"我不确定"，对应字段返回 null
+                        5. 数值字段必须能从消息中直接读出，不要估算
+                        
+                        示例：
+                        输入："我30岁，跑龄2年，周跑量30公里"
+                        输出：{age: 30, runningExperience: "2年", weeklyMileageKm: 30.0, 其余为 null}
                         """)
                 .user(userMessage)
                 .call()
@@ -78,5 +96,26 @@ public class ProfileAgent {
             );
             profileRepository.save(merged);
         });
+    }
+
+    public ProfileUpdate extractFromConversation(String userMessage) {
+        return chatClient.prompt()
+                .system("""
+                        从用户的消息中提取跑步相关的个人信息。
+                        
+                        规则：
+                        1. 只提取消息中明确提到的字段，未提到的字段返回 null
+                        2. 不要推测、不要编造、不要从常识推断
+                        3. 如果用户说"没有伤病"，injuryHistory 返回空列表 []
+                        4. 如果用户说"我不确定"，对应字段返回 null
+                        5. 数值字段必须能从消息中直接读出，不要估算
+                        
+                        示例：
+                        输入："我30岁，跑龄2年，周跑量30公里"
+                        输出：{age: 30, runningExperience: "2年", weeklyMileageKm: 30.0, 其余为 null}
+                        """)
+                .user(userMessage)
+                .call()
+                .entity(ProfileUpdate.class);
     }
 }

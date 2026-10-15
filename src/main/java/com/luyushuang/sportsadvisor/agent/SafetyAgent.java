@@ -64,7 +64,8 @@ public class SafetyAgent {
                 ruleBlockers.isEmpty() ? "无" : String.join("\n", ruleBlockers),
                 profile.age(), profile.runningExperience(), profile.weeklyMileageKm(),
                 profile.injuryHistory().isEmpty() ? "无" : String.join("、", profile.injuryHistory()),
-                new BeanOutputConverter<>(HalfMarathonPlan.class).convert(plan));
+                plan);
+//                new BeanOutputConverter<>(HalfMarathonPlan.class).convert(plan));
 
         return safetyChatClient.prompt().user(reviewPrompt).call()
                 .entity(SafetyReviewResult.class);

@@ -6,16 +6,25 @@ spring:
       base-url: http://localhost:11434
       api-key: sk-8617d964572141eba7fd36b4c256a23c
       chat:
-        options:
-          model: qwen2.5:7b
-    vectorstore:
-      redis:
-        index-name: running-knowledge-index
-        prefix: "running:knowledge:"
-        initialize-schema: true
+        model: qwen2.5:7b
+      embedding:
+        model: mxbai-embed-large   # 确保名称与 ollama list 中显示的一致
+#    vectorstore:
+#      redis:
+#        index-name: running-knowledge-index
+#        prefix: "running:knowledge:"
+#        initialize-schema: true
+    retry:
+      on-client-errors: true
+      max-attempts: 3
   data:
     redis:
       host: localhost
       port: 6379
       password:
       database: 0
+
+app:
+  knowledge:
+    version: "2026-10-15-v1"
+    path: "knowledge"

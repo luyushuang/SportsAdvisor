@@ -23,17 +23,26 @@ ext {
 }
 
 dependencies {
-    implementation 'org.springframework.boot:spring-boot-starter-data-redis-reactive'
     implementation 'org.springframework.boot:spring-boot-starter-restclient'
     implementation 'org.springframework.boot:spring-boot-starter-webclient'
     implementation 'org.springframework.boot:spring-boot-starter-webmvc'
     implementation 'org.springframework.ai:spring-ai-starter-model-ollama'
     implementation 'org.springframework.boot:spring-boot-starter-validation'
-    implementation 'org.springframework.ai:spring-ai-starter-model-chat-memory-repository-redis'
-    implementation 'org.springframework.ai:spring-ai-starter-vector-store-redis'
+    implementation('org.springframework.ai:spring-ai-starter-model-chat-memory-repository-redis') {
+        exclude group: 'io.lettuce', module: 'lettuce-core'
+    }
+    implementation('org.springframework.ai:spring-ai-starter-vector-store-redis') {
+        exclude group: 'io.lettuce', module: 'lettuce-core'
+    }
+    implementation 'org.springframework.ai:spring-ai-rag'
+    implementation 'org.springframework.ai:spring-ai-vector-store-advisor'
+    implementation('org.springframework.boot:spring-boot-starter-data-redis') {
+        exclude group: 'io.lettuce', module: 'lettuce-core'
+    }
+    implementation 'redis.clients:jedis' // 版本由 Spring Boot 管理
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'
-    testImplementation 'org.springframework.boot:spring-boot-starter-data-redis-reactive-test'
+    testImplementation 'org.springframework.boot:spring-boot-starter-data-redis-test'
     testImplementation 'org.springframework.boot:spring-boot-starter-restclient-test'
     testImplementation 'org.springframework.boot:spring-boot-starter-webclient-test'
     testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
@@ -48,5 +57,10 @@ dependencyManagement {
     }
 }
 
+configurations.all {
+    exclude group: 'io.lettuce', module: 'lettuce-core'
+}
+
 tasks.named('test') {
+    useJUnitPlatform()
 }

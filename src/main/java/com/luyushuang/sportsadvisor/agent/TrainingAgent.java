@@ -6,8 +6,8 @@ import com.luyushuang.sportsadvisor.tool.WeatherTools;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
-import org.springframework.ai.converter.BeanOutputConverter;
-import org.springframework.ai.vectorstore.SearchRequest;
+import org.springframework.ai.rag.advisor.RetrievalAugmentationAdvisor;
+import org.springframework.ai.rag.retrieval.search.VectorStoreDocumentRetriever;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.stereotype.Service;
 
@@ -15,6 +15,7 @@ import java.util.List;
 
 @Service
 public class TrainingAgent {
+
     private final ChatClient trainingChatClient;
     private final WeatherTools weatherTools;
     private final ProfileAgent profileAgent;
@@ -24,9 +25,27 @@ public class TrainingAgent {
                          ProfileAgent profileAgent,
                          VectorStore vectorStore,
                          ChatMemory chatMemory) {
+
         this.weatherTools = weatherTools;
         this.profileAgent = profileAgent;
 
+        // ---- 构建 RAG Advisor（替代已移除的 QuestionAnswerAdvisor）----
+        RetrievalAugmentationAdvisor ragAdvisor = RetrievalAugmentationAdvisor.builder()
+                .documentRetriever(
+                        VectorStoreDocumentRetriever.builder()
+                                .vectorStore(vectorStore)
+                                .similarityThreshold(0.65)
+                                .topK(8)
+                                .build()
+                )
+                .build();
+
+        // ---- 构建 ChatMemory Advisor ----
+        MessageChatMemoryAdvisor memoryAdvisor = MessageChatMemoryAdvisor
+                .builder(chatMemory)
+                .build();
+
+        // ---- 构建 TrainingAgent 专用的 ChatClient ----
         this.trainingChatClient = builder
                 .defaultSystem("""
                         你是一个专业的半马训练计划制定专家，拥有运动科学和跑步训练的专业知识。
@@ -36,7 +55,8 @@ public class TrainingAgent {
                         
                         ## 制定原则
                         1. 训练计划必须基于用户当前周跑量和跑龄，遵循"10%原则"（每周跑量增量不超过上周10%）
-                        2. 必须包含以下训练类型：轻松跑(Easy Run)、长距离跑(Long Run)、间歇跑(Interval)、恢复跑(Recovery Run)、交叉训练(Cross Training)、休息日(Rest Day)
+                        2. 必须包含以下训练类型：轻松跑(Easy Run)、长距离跑(Long Run)、间歇跑(Interval)、
+                           恢复跑(Recovery Run)、交叉训练(Cross Training)、休息日(Rest Day)
                         3. 必须引用知识库中检索到的具体训练方法和配速计算方式
                         4. 如果用户有伤病历史，必须在计划中体现预防措施
                         5. 结合天气数据，在极端天气日建议室内训练
@@ -44,13 +64,8 @@ public class TrainingAgent {
                         ## 输出格式
                         请严格按照要求的 JSON 格式输出训练计划。
                         """)
-                .defaultTools(this.weatherTools)
-                .defaultAdvisors(
-                        MessageChatMemoryAdvisor.builder(chatMemory).build(),
-                        QuestionAnswerAdvisor.builder(vectorStore)
-                                .searchRequest(SearchRequest.builder().topK(8).similarityThreshold(0.65).build())
-                                .build()
-                )
+                .defaultTools(weatherTools)
+                .defaultAdvisors(memoryAdvisor, ragAdvisor)
                 .build();
     }
 
@@ -58,10 +73,8 @@ public class TrainingAgent {
      * 生成半马训练计划
      */
     public HalfMarathonPlan generatePlan(String userId, String userRequest) {
-        // 1. 加载用户画像
         String profileContext = profileAgent.buildProfileContext(userId);
 
-        // 2. 构建包含画像的完整请求
         String fullPrompt = String.format("""
                 用户画像信息：
                 %s
@@ -71,22 +84,16 @@ public class TrainingAgent {
                 请基于以上用户画像和检索到的训练知识，生成一份完整的半马训练计划。
                 """, profileContext, userRequest);
 
-        // todo:
-        SearchRequest searchRequest = SearchRequest.builder()
-                .query(userRequest)
-                .topK(8)
-                .similarityThreshold(0.65)
-                .filterExpression("category == 'training' || category == 'pace'")
-                .build();
-
-        // 3. 调用 LLM，返回结构化训练计划
         return trainingChatClient.prompt()
                 .user(fullPrompt)
+                .advisors(a -> a.param(ChatMemory.CONVERSATION_ID, userId))
                 .call()
-                .entity(HalfMarathonPlan.class);
+                .entity(HalfMarathonPlan.class, spec -> spec.validateSchema());
     }
 
-    // 在 TrainingAgent 中新增
+    /**
+     * 根据安全审核意见修正训练计划
+     */
     public HalfMarathonPlan revisePlan(String userId,
                                        HalfMarathonPlan originalPlan,
                                        List<String> blockers,
@@ -97,8 +104,8 @@ public class TrainingAgent {
                         ## 安全问题
                         %s
                         
-                        ## 原始计划
-                        %s
+                        ## 原始计划摘要
+                        计划名称：%s，共 %d 周
                         
                         ## 用户画像
                         周跑量：%.1fkm，跑龄：%s
@@ -106,12 +113,15 @@ public class TrainingAgent {
                         请修正上述问题，保持计划整体框架不变，只调整有问题的部分。
                         """,
                 String.join("\n", blockers),
-                new BeanOutputConverter<>(HalfMarathonPlan.class).convert(originalPlan),
-                profile.weeklyMileageKm(), profile.runningExperience());
+                originalPlan.planName(),
+                originalPlan.weeks().size(),
+                profile.weeklyMileageKm(),
+                profile.runningExperience());
 
         return trainingChatClient.prompt()
                 .user(revisePrompt)
+                .advisors(a -> a.param(ChatMemory.CONVERSATION_ID, userId))
                 .call()
-                .entity(HalfMarathonPlan.class);
+                .entity(HalfMarathonPlan.class, spec -> spec.validateSchema());
     }
 }
