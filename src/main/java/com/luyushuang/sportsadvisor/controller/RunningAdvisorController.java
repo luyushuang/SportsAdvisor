@@ -32,12 +32,13 @@ public class RunningAdvisorController {
      */
     @PostMapping("/chat")
     public ResponseEntity<AskResponse> chat(@RequestBody @Valid ChatRequest request) {
-        String answer = service.ask(request.conversationId(), request.question());
+        String answer = service.ask(request.userId(), request.conversationId(), request.question());
         return ResponseEntity.ok(new AskResponse(answer));
     }
 
     // ---- DTO ----
     public record ChatRequest(
+            @NotBlank(message = "userId 不能为空") String userId,
             @NotBlank(message = "conversationId 不能为空") String conversationId,
             @NotBlank(message = "question 不能为空") String question
     ) {

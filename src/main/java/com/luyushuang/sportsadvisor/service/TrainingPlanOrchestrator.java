@@ -37,30 +37,24 @@ public class TrainingPlanOrchestrator {
      */
     public TrainingPlanResponse createPlan(String userId, String userRequest) {
         // Step 1: 画像检查
-        var profileOpt = profileRepository.findById(userId);
-        if (profileOpt.isEmpty()) {
-            // 触发画像自动提取（从本次请求中提取）
-            profileAgent.updateProfileFromConversation(userId, userRequest);
-            profileOpt = profileRepository.findById(userId);
+        // 触发画像自动提取（从本次请求中提取）
+        UserProfile userProfile = profileAgent.extractAndUpdate(userId, userRequest);
 
-            // 如果仍然没有关键信息，引导用户补充
-            if (profileOpt.isEmpty() || profileOpt.get().weeklyMileageKm() == null) {
-                return new TrainingPlanResponse(
-                        "need_profile",
-                        "为了制定个性化计划，我需要知道您的跑龄、周跑量和半马目标。比如：\"我跑龄2年，周跑量30公里，想12周内半马破2\"。",
-                        null, null
-                );
-            }
+        // 如果仍然没有关键信息，引导用户补充
+        if (userProfile == null || !userProfile.isSufficientForPlan()) {
+            return new TrainingPlanResponse(
+                    "need_profile",
+                    "为了制定个性化计划，我需要知道您的跑龄、周跑量和半马目标。比如：\"我跑龄2年，周跑量30公里，想12周内半马破2\"。",
+                    null, null
+            );
         }
-
-        UserProfile profile = profileOpt.get();
 
         // Step 2: 生成计划
         HalfMarathonPlan plan = trainingAgent.generatePlan(userId, userRequest);
 
         // Step 3: 安全审核 + 自动修正循环
         for (int round = 0; round < MAX_REVISION_ROUNDS; round++) {
-            SafetyReviewResult review = safetyAgent.review(plan, profile);
+            SafetyReviewResult review = safetyAgent.review(plan, userProfile);
 
             if (review.approved()) {
                 return new TrainingPlanResponse("approved",
@@ -74,7 +68,7 @@ public class TrainingPlanOrchestrator {
             }
 
             // 有阻断性问题，让 Training Agent 根据审核意见修正
-            plan = trainingAgent.revisePlan(userId, plan, review.blockers(), profile);
+            plan = trainingAgent.revisePlan(userId, plan, review.blockers(), userProfile);
         }
 
         // 超过修正轮数仍未通过，返回阻断状态

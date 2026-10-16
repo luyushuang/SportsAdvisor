@@ -3,119 +3,169 @@ package com.luyushuang.sportsadvisor.agent;
 import com.luyushuang.sportsadvisor.entity.ProfileUpdate;
 import com.luyushuang.sportsadvisor.entity.UserProfile;
 import com.luyushuang.sportsadvisor.repository.UserProfileRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.regex.Pattern;
 
 @Service
 public class ProfileAgent {
-    private static final Pattern PROFILE_KEYWORDS = Pattern.compile(
-            "岁|跑龄|跑量|公里|半马|全马|伤病|膝盖|脚|目标|成绩|配速|心率"
-    );
 
-    private final ChatClient chatClient;
-
-    private final UserProfileRepository profileRepository;
-
-    public ProfileAgent(UserProfileRepository profileRepository, ChatClient.Builder builder) {
-        this.profileRepository = profileRepository;
-        this.chatClient = builder.build();
-    }
+    private static final Logger log = LoggerFactory.getLogger(ProfileAgent.class);
 
     /**
-     * 将用户画像格式化为自然语言，用于注入 System Prompt
+     * 触发提取的关键词，避免无意义的 LLM 调用
+     */
+    private static final Pattern PROFILE_KEYWORDS = Pattern.compile(
+            "岁|年龄|跑龄|跑量|公里|km|半马|全马|马拉松|伤病|膝盖|脚|跟腱|"
+                    + "目标|成绩|配速|心率|体重|身高|晨跑|夜跑|跑道|公路|越野"
+    );
+
+    private final ChatClient extractionChatClient;
+    private final UserProfileRepository profileRepository;
+
+    public ProfileAgent(ChatClient.Builder builder,
+                        UserProfileRepository profileRepository) {
+        this.profileRepository = profileRepository;
+        // 提取专用的 ChatClient：不挂工具、不挂记忆、不挂 RAG
+        this.extractionChatClient = builder
+                .defaultSystem("""
+                        从用户的消息中提取跑步相关的个人信息。
+                        
+                        规则：
+                        1. 只提取消息中明确提到的字段，未提到的字段返回 null
+                        2. 不要推测、不要编造、不要从常识推断
+                        3. 如果用户说"没有伤病"，injuryHistory 返回空列表 []
+                        4. 如果用户说"我不确定"，对应字段返回 null
+                        5. 数值字段必须能从消息中直接读出，不要估算
+                        
+                        示例：
+                        输入："我30岁，跑龄2年，周跑量30公里"
+                        输出：{age: 30, runningExperience: "2年", weeklyMileageKm: 30.0, 其余为 null}
+                        """)
+                .build();
+    }
+
+    // ==================== 读取 ====================
+
+    /**
+     * 读取画像并格式化为自然语言，用于注入 System Prompt。
      */
     public String buildProfileContext(String userId) {
         return profileRepository.findById(userId)
-                .map(profile -> String.format("""
-                                当前用户画像：
-                                - 年龄：%d岁，体重：%.1fkg，身高：%dcm
-                                - 跑龄：%s，周跑量：%.1fkm
-                                - 半马最好成绩：%s
-                                - 训练目标：%s
-                                - 伤病历史：%s
-                                - 偏好跑步时段：%s，偏好路面：%s
-                                """,
-                        profile.age(), profile.weightKg(), profile.heightCm(),
-                        profile.runningExperience(), profile.weeklyMileageKm(),
-                        profile.bestHalfMarathonTime() != null ? profile.bestHalfMarathonTime() : "无",
-                        profile.trainingGoal(),
-                        profile.injuryHistory().isEmpty() ? "无" : String.join("、", profile.injuryHistory()),
-                        profile.preferredRunTime(), profile.preferredTerrain()))
+                .map(this::formatProfile)
                 .orElse("暂无用户画像信息，请先向用户了解基本情况。");
     }
 
     /**
-     * 从对话中自动提取用户画像信息（简化版）
-     * 生产环境可以用 LLM 做结构化提取
+     * 读取原始画像对象，供编排器判断是否足够生成计划。
      */
-    public void updateProfileFromConversation(String userId, String userMessage) {
-        if (!PROFILE_KEYWORDS.matcher(userMessage).find()) {
-            return; // 快速跳过，不调用 LLM
-        }
-
-        ProfileUpdate update = chatClient.prompt()
-                .system("""
-                        从用户的消息中提取跑步相关的个人信息。
-                        
-                        规则：
-                        1. 只提取消息中明确提到的字段，未提到的字段返回 null
-                        2. 不要推测、不要编造、不要从常识推断
-                        3. 如果用户说"没有伤病"，injuryHistory 返回空列表 []
-                        4. 如果用户说"我不确定"，对应字段返回 null
-                        5. 数值字段必须能从消息中直接读出，不要估算
-                        
-                        示例：
-                        输入："我30岁，跑龄2年，周跑量30公里"
-                        输出：{age: 30, runningExperience: "2年", weeklyMileageKm: 30.0, 其余为 null}
-                        """)
-                .user(userMessage)
-                .call()
-                .entity(ProfileUpdate.class);
-
-        if (update == null) {
-            return;
-        }
-        // 与现有画像合并（仅更新非 null 字段）
-        profileRepository.findById(userId).ifPresent(existing -> {
-            UserProfile merged = new UserProfile(
-                    userId,
-                    update.age() != null ? update.age() : existing.age(),
-                    update.weightKg() != null ? update.weightKg() : existing.weightKg(),
-                    // ... 其余字段同理，仅在新值非 null 时覆盖
-                    update.heightCm() != null ? update.heightCm() : existing.heightCm(),
-                    update.runningExperience() != null ? update.runningExperience() : existing.runningExperience(),
-                    update.weeklyMileageKm() != null ? update.weeklyMileageKm() : existing.weeklyMileageKm(),
-                    update.bestHalfMarathonTime() != null ? update.bestHalfMarathonTime() : existing.bestHalfMarathonTime(),
-                    update.trainingGoal() != null ? update.trainingGoal() : existing.trainingGoal(),
-                    update.injuryHistory() != null && !update.injuryHistory().isEmpty()
-                            ? update.injuryHistory() : existing.injuryHistory(),
-                    update.preferredRunTime() != null ? update.preferredRunTime() : existing.preferredRunTime(),
-                    update.preferredTerrain() != null ? update.preferredTerrain() : existing.preferredTerrain()
-            );
-            profileRepository.save(merged);
-        });
+    public UserProfile getProfile(String userId) {
+        return profileRepository.findById(userId).orElse(null);
     }
 
+    private String formatProfile(UserProfile p) {
+        return String.format("""
+                        当前用户画像：
+                        - 年龄：%s，体重：%skg，身高：%scm
+                        - 跑龄：%s，周跑量：%skm
+                        - 半马最好成绩：%s
+                        - 训练目标：%s
+                        - 伤病历史：%s
+                        - 偏好跑步时段：%s，偏好路面：%s
+                        """,
+                p.age() != null ? p.age() + "岁" : "未知",
+                p.weightKg() != null ? p.weightKg() : "未知",
+                p.heightCm() != null ? p.heightCm() : "未知",
+                p.runningExperience() != null ? p.runningExperience() : "未知",
+                p.weeklyMileageKm() != null ? p.weeklyMileageKm() : "未知",
+                p.bestHalfMarathonTime() != null ? p.bestHalfMarathonTime() : "无",
+                p.trainingGoal() != null ? p.trainingGoal() : "未知",
+                p.injuryHistory().isEmpty() ? "无" : String.join("、", p.injuryHistory()),
+                p.preferredRunTime() != null ? p.preferredRunTime() : "未知",
+                p.preferredTerrain() != null ? p.preferredTerrain() : "未知"
+        );
+    }
+
+    // ==================== 提取 ====================
+
+    /**
+     * 从单条用户消息中提取结构化信息（纯函数，不涉及持久化）。
+     */
     public ProfileUpdate extractFromConversation(String userMessage) {
-        return chatClient.prompt()
-                .system("""
-                        从用户的消息中提取跑步相关的个人信息。
-                        
-                        规则：
-                        1. 只提取消息中明确提到的字段，未提到的字段返回 null
-                        2. 不要推测、不要编造、不要从常识推断
-                        3. 如果用户说"没有伤病"，injuryHistory 返回空列表 []
-                        4. 如果用户说"我不确定"，对应字段返回 null
-                        5. 数值字段必须能从消息中直接读出，不要估算
-                        
-                        示例：
-                        输入："我30岁，跑龄2年，周跑量30公里"
-                        输出：{age: 30, runningExperience: "2年", weeklyMileageKm: 30.0, 其余为 null}
-                        """)
+        ProfileUpdate update = extractionChatClient.prompt()
                 .user(userMessage)
                 .call()
                 .entity(ProfileUpdate.class);
+
+        assert update != null;
+        return sanitize(update);
+    }
+
+    /**
+     * 数值校验：丢弃明显越界的异常值，防止 LLM 提取错误污染画像。
+     */
+    private ProfileUpdate sanitize(ProfileUpdate u) {
+        return new ProfileUpdate(
+                validInt(u.age(), 5, 120) ? u.age() : null,
+                validDouble(u.weightKg(), 20, 300) ? u.weightKg() : null,
+                validInt(u.heightCm(), 100, 250) ? u.heightCm() : null,
+                u.runningExperience(),
+                validDouble(u.weeklyMileageKm(), 0, 500) ? u.weeklyMileageKm() : null,
+                u.bestHalfMarathonTime(),
+                u.trainingGoal(),
+                u.injuryHistory(),
+                u.preferredRunTime(),
+                u.preferredTerrain()
+        );
+    }
+
+    private boolean validInt(Integer v, int min, int max) {
+        return v == null || (v >= min && v <= max);
+    }
+
+    private boolean validDouble(Double v, double min, double max) {
+        return v == null || (v >= min && v <= max);
+    }
+
+    // ==================== 提取 + 合并 + 持久化 ====================
+
+    /**
+     * 一站式入口：提取 + 合并 + 持久化。
+     * 如果消息中不包含画像关键词，快速跳过，不调用 LLM。
+     */
+    public UserProfile extractAndUpdate(String userId, String userMessage) {
+        if (userMessage == null || !PROFILE_KEYWORDS.matcher(userMessage).find()) {
+            return getProfile(userId);
+        }
+        try {
+            ProfileUpdate update = extractFromConversation(userMessage);
+            return profileRepository.mergeAndSave(userId, update);
+        } catch (Exception e) {
+            log.warn("画像提取失败，userId={}，不影响主流程", userId, e);
+            return getProfile(userId);
+        }
+    }
+
+    /**
+     * 异步版本：用于对话结束后的持续积累，不阻塞用户响应。
+     */
+    @Async("profileExtractionExecutor")
+    public CompletableFuture<UserProfile> extractAndUpdateAsync(String userId, String userMessage) {
+        return CompletableFuture.completedFuture(extractAndUpdate(userId, userMessage));
+    }
+
+    // ==================== 用户主动更新 ====================
+
+    /**
+     * 用户通过表单或显式指令直接更新画像。
+     */
+    public UserProfile updateProfile(String userId, UserProfile profile) {
+        return profileRepository.save(profile);
     }
 }

@@ -1,5 +1,6 @@
 package com.luyushuang.sportsadvisor.service;
 
+import com.luyushuang.sportsadvisor.agent.ProfileAgent;
 import com.luyushuang.sportsadvisor.tool.WeatherTools;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
@@ -44,10 +45,12 @@ public class RunningAdvisorService {
             """;
 
     private final ChatClient chatClient;
+    private final ProfileAgent profileAgent;
 
     public RunningAdvisorService(ChatClient.Builder builder,
-                                 WeatherTools weatherTools, ChatMemory chatMemory) {
+                                 WeatherTools weatherTools, ChatMemory chatMemory, ProfileAgent profileAgent) {
 //        ChatMemory chatMemory = new InMemoryChatMemory();
+        this.profileAgent = profileAgent;
         this.chatClient = builder
                 .defaultSystem(String.format(SYSTEM_PROMPT, java.time.LocalDate.now()))
                 .defaultTools(weatherTools)
@@ -68,11 +71,16 @@ public class RunningAdvisorService {
     /**
      * 多轮对话（按 conversationId 隔离会话记忆）
      */
-    public String ask(String conversationId, String question) {
-        return chatClient.prompt()
+    public String ask(String userId, String conversationId, String question) {
+        String answer = chatClient.prompt()
                 .user(question)
                 .advisors(a -> a.param(ChatMemory.CONVERSATION_ID, conversationId))
                 .call()
                 .content();
+
+        // 异步提取，不阻塞响应
+        profileAgent.extractAndUpdateAsync(userId, question);
+
+        return answer;
     }
 }

@@ -15,4 +15,12 @@ public record UserProfile(
         String preferredRunTime,     // 偏好时段：早晨/傍晚/夜间
         String preferredTerrain     // 偏好路面：公路/跑道/越野
 ) {
+    /**
+     * 判断画像是否足够生成训练计划
+     */
+    public boolean isSufficientForPlan() {
+        return weeklyMileageKm != null
+                && runningExperience != null
+                && trainingGoal != null;
+    }
 }
