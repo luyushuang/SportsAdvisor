@@ -46,6 +46,11 @@ public class SafetyAgent {
         // 先跑规则引擎
         List<String> ruleBlockers = safetyRuleEngine.checkRules(plan, profile);
 
+        System.out.println("--规则引擎运行结果：");
+        for (String str: ruleBlockers) {
+            System.out.println("----" + str);
+        }
+
         // 再交给 LLM 做综合审核
         String reviewPrompt = String.format("""
                         请审核以下半马训练计划。

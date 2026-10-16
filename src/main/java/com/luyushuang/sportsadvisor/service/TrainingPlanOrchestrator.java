@@ -50,16 +50,17 @@ public class TrainingPlanOrchestrator {
             );
         }
 
-        System.out.println("已完成用户profile提取，开始生成训练计划");
+        System.out.println("已完成用户profile提取，开始生成训练计划: " + userProfile.toString());
 
         // Step 2: 生成计划
         HalfMarathonPlan plan = trainingAgent.generatePlan(userId, userRequest);
 
-        System.out.println("已生成计划，进行安全审核");
+        System.out.println("已生成计划，进行安全审核: " + plan.toString());
 
         // Step 3: 安全审核 + 自动修正循环
         for (int round = 0; round < MAX_REVISION_ROUNDS; round++) {
             SafetyReviewResult review = safetyAgent.review(plan, userProfile);
+            System.out.println("review result: " + review.toString());
 
             if (review.approved()) {
                 return new TrainingPlanResponse("approved",

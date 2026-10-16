@@ -6,6 +6,8 @@ import com.luyushuang.sportsadvisor.tool.WeatherTools;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
+import org.springframework.ai.converter.BeanOutputConverter;
+import org.springframework.ai.converter.MarkdownCodeBlockCleaner;
 import org.springframework.ai.rag.advisor.RetrievalAugmentationAdvisor;
 import org.springframework.ai.rag.retrieval.search.VectorStoreDocumentRetriever;
 import org.springframework.ai.vectorstore.VectorStore;
@@ -75,6 +77,14 @@ public class TrainingAgent {
     public HalfMarathonPlan generatePlan(String userId, String userRequest) {
         String profileContext = profileAgent.buildProfileContext(userId);
 
+        // 创建带 Markdown 清洗的转换器
+        BeanOutputConverter<HalfMarathonPlan> converter =
+                new BeanOutputConverter<>(
+                        HalfMarathonPlan.class,
+                        null,  // 使用默认 ObjectMapper
+                        new MarkdownCodeBlockCleaner()  // 自动剥离 Markdown 代码块
+                );
+
         String fullPrompt = String.format("""
                 用户画像信息：
                 %s
@@ -88,7 +98,7 @@ public class TrainingAgent {
                 .user(fullPrompt)
                 .advisors(a -> a.param(ChatMemory.CONVERSATION_ID, userId))
                 .call()
-                .entity(HalfMarathonPlan.class, spec -> spec.validateSchema());
+                .entity(converter);
     }
 
     /**
