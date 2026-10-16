@@ -36,6 +36,7 @@ public class TrainingPlanOrchestrator {
      * 编排完整的训练计划生成流程
      */
     public TrainingPlanResponse createPlan(String userId, String userRequest) {
+        System.out.println("开始查询用户profile，没有的话进行信息提取");
         // Step 1: 画像检查
         // 触发画像自动提取（从本次请求中提取）
         UserProfile userProfile = profileAgent.extractAndUpdate(userId, userRequest);
@@ -49,8 +50,12 @@ public class TrainingPlanOrchestrator {
             );
         }
 
+        System.out.println("已完成用户profile提取，开始生成训练计划");
+
         // Step 2: 生成计划
         HalfMarathonPlan plan = trainingAgent.generatePlan(userId, userRequest);
+
+        System.out.println("已生成计划，进行安全审核");
 
         // Step 3: 安全审核 + 自动修正循环
         for (int round = 0; round < MAX_REVISION_ROUNDS; round++) {
@@ -70,6 +75,8 @@ public class TrainingPlanOrchestrator {
             // 有阻断性问题，让 Training Agent 根据审核意见修正
             plan = trainingAgent.revisePlan(userId, plan, review.blockers(), userProfile);
         }
+
+        System.out.println("完成计划审核，返回");
 
         // 超过修正轮数仍未通过，返回阻断状态
         return new TrainingPlanResponse("blocked",
