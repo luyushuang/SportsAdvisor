@@ -6,7 +6,7 @@ import com.luyushuang.sportsadvisor.agent.TrainingAgent;
 import com.luyushuang.sportsadvisor.entity.HalfMarathonPlan;
 import com.luyushuang.sportsadvisor.entity.SafetyReviewResult;
 import com.luyushuang.sportsadvisor.entity.UserProfile;
-import com.luyushuang.sportsadvisor.repository.UserProfileRepository;
+import com.luyushuang.sportsadvisor.persistence.UserProfileRepository;
 import com.luyushuang.sportsadvisor.tool.WeatherTools;
 import org.springframework.stereotype.Service;
 

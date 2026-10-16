@@ -2,14 +2,13 @@ package com.luyushuang.sportsadvisor.agent;
 
 import com.luyushuang.sportsadvisor.entity.ProfileUpdate;
 import com.luyushuang.sportsadvisor.entity.UserProfile;
-import com.luyushuang.sportsadvisor.repository.UserProfileRepository;
+import com.luyushuang.sportsadvisor.persistence.UserProfileRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
-import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.regex.Pattern;
 

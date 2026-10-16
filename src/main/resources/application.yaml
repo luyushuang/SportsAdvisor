@@ -9,11 +9,11 @@ spring:
         model: qwen2.5:3b-opt-v3
       embedding:
         model: mxbai-embed-large   # 确保名称与 ollama list 中显示的一致
-#    vectorstore:
-#      redis:
-#        index-name: running-knowledge-index
-#        prefix: "running:knowledge:"
-#        initialize-schema: true
+    #    vectorstore:
+    #      redis:
+    #        index-name: running-knowledge-index
+    #        prefix: "running:knowledge:"
+    #        initialize-schema: true
     retry:
       on-client-errors: true
       max-attempts: 3
@@ -23,8 +23,29 @@ spring:
       port: 6379
       password:
       database: 0
+  datasource:
+    url: jdbc:mysql://localhost:3306/sports_advisor?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&rewriteBatchedStatements=true
+    username: luyushuang
+    password: 1231
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 3000
+
+mybatis:
+  mapper-locations: classpath:mapper/*.xml
+  type-handlers-package: com.luyushuang.sportsadvisor.persistence.handler
+  configuration:
+    map-underscore-to-camel-case: true
+    default-fetch-size: 100
+    default-statement-timeout: 10
 
 app:
   knowledge:
     version: "2026-10-15-v1"
     path: "knowledge"
+
+logging:
+  level:
+    com.luyushuang.sportsadvisor.persistence.mapper: DEBUG

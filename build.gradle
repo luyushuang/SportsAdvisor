@@ -40,6 +40,10 @@ dependencies {
         exclude group: 'io.lettuce', module: 'lettuce-core'
     }
     implementation 'redis.clients:jedis' // 版本由 Spring Boot 管理
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-jdbc'
+    implementation 'org.mybatis.spring.boot:mybatis-spring-boot-starter:4.0.1'
+    implementation 'com.fasterxml.jackson.core:jackson-databind'
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'
     testImplementation 'org.springframework.boot:spring-boot-starter-data-redis-test'
@@ -48,6 +52,9 @@ dependencies {
     testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
     testCompileOnly 'org.projectlombok:lombok'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    runtimeOnly 'com.mysql:mysql-connector-j'
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.mybatis.spring.boot:mybatis-spring-boot-starter-test:4.0.1'
     testAnnotationProcessor 'org.projectlombok:lombok'
 }
 

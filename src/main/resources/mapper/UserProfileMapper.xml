@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.luyushuang.sportsadvisor.persistence.mapper.UserProfileMapper">
+
+    <resultMap id="UserProfileMap" type="com.luyushuang.sportsadvisor.persistence.entity.UserProfilePO">
+        <id property="userId" column="user_id"/>
+        <result property="age" column="age"/>
+        <result property="weightKg" column="weight_kg"/>
+        <result property="heightCm" column="height_cm"/>
+        <result property="runningExperience" column="running_experience"/>
+        <result property="weeklyMileageKm" column="weekly_mileage_km"/>
+        <result property="bestHalfMarathonTime" column="best_half_marathon_time"/>
+        <result property="trainingGoal" column="training_goal"/>
+        <result property="injuryHistory" column="injury_history"
+                typeHandler="com.luyushuang.sportsadvisor.persistence.handler.StringListJsonTypeHandler"/>
+        <result property="preferredRunTime" column="preferred_run_time"/>
+        <result property="preferredTerrain" column="preferred_terrain"/>
+        <result property="version" column="version"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <sql id="allColumns">
+        user_id
+        , age, weight_kg, height_cm, running_experience, weekly_mileage_km,
+        best_half_marathon_time, training_goal, injury_history,
+        preferred_run_time, preferred_terrain, version, created_at, updated_at
+    </sql>
+
+    <select id="findByUserId" resultMap="UserProfileMap">
+        SELECT
+        <include refid="allColumns"/>
+        FROM user_profile
+        WHERE user_id = #{userId}
+    </select>
+
+    <select id="findByUserIdForUpdate" resultMap="UserProfileMap">
+        SELECT
+        <include refid="allColumns"/>
+        FROM user_profile
+        WHERE user_id = #{userId}
+        FOR UPDATE
+    </select>
+
+    <insert id="insert" parameterType="com.luyushuang.sportsadvisor.persistence.entity.UserProfilePO">
+        INSERT INTO user_profile (user_id, age, weight_kg, height_cm, running_experience, weekly_mileage_km,
+                                  best_half_marathon_time, training_goal, injury_history,
+                                  preferred_run_time, preferred_terrain, version, created_at, updated_at)
+        VALUES (#{userId}, #{age}, #{weightKg}, #{heightCm}, #{runningExperience}, #{weeklyMileageKm},
+                #{bestHalfMarathonTime}, #{trainingGoal},
+                #{injuryHistory, typeHandler=com.luyushuang.sportsadvisor.persistence.handler.StringListJsonTypeHandler},
+                #{preferredRunTime}, #{preferredTerrain}, 0, NOW(), NOW())
+    </insert>
+
+    <update id="updateWithVersion" parameterType="com.luyushuang.sportsadvisor.persistence.entity.UserProfilePO">
+        UPDATE user_profile
+        SET age                     = #{age},
+            weight_kg               = #{weightKg},
+            height_cm               = #{heightCm},
+            running_experience      = #{runningExperience},
+            weekly_mileage_km       = #{weeklyMileageKm},
+            best_half_marathon_time = #{bestHalfMarathonTime},
+            training_goal           = #{trainingGoal},
+            injury_history          = #{injuryHistory, typeHandler=com.luyushuang.sportsadvisor.persistence.handler.StringListJsonTypeHandler},
+            preferred_run_time      = #{preferredRunTime},
+            preferred_terrain       = #{preferredTerrain},
+            version                 = version + 1,
+            updated_at              = NOW()
+        WHERE user_id = #{userId}
+          AND version = #{version}
+    </update>
+
+</mapper>
