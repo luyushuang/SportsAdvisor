@@ -30,7 +30,7 @@ public class SafetyRuleEngine {
         for (TrainingWeek week : plan.weeks()) {
             long restDays = week.days().stream()
                     .filter(d -> "Rest Day".equalsIgnoreCase(d.workoutType())
-                            || "休息日".equalsIgnoreCase(d.workoutType()))
+                            || (d.workoutType() != null && d.workoutType().contains("休息")))
                     .count();
             if (restDays == 0) {
                 blockers.add(String.format("第 %d 周没有安排休息日", week.weekNumber()));

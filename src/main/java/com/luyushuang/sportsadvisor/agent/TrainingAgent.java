@@ -3,8 +3,10 @@ package com.luyushuang.sportsadvisor.agent;
 import com.luyushuang.sportsadvisor.entity.HalfMarathonPlan;
 import com.luyushuang.sportsadvisor.entity.UserProfile;
 import com.luyushuang.sportsadvisor.tool.WeatherTools;
+import com.luyushuang.sportsadvisor.util.ResilientConverter;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
+import org.springframework.ai.chat.client.advisor.StructuredOutputValidationAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.converter.BeanOutputConverter;
 import org.springframework.ai.converter.MarkdownCodeBlockCleaner;
@@ -23,27 +25,21 @@ public class TrainingAgent {
     private final ChatClient trainingChatClient;
     private final WeatherTools weatherTools;
     private final ProfileAgent profileAgent;
-    private final BeanOutputConverter<HalfMarathonPlan> converter;
+    private final ResilientConverter<HalfMarathonPlan> planConverter;
+    private final StructuredOutputValidationAdvisor planValidationAdvisor;
 
     public TrainingAgent(ChatClient.Builder builder,
                          WeatherTools weatherTools,
                          ProfileAgent profileAgent,
                          VectorStore vectorStore,
-                         ChatMemory chatMemory) {
-
-        JsonMapper jsonMapper = JsonMapper.builder()
-                .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
-                .build();
-
-        // 创建带 Markdown 清洗的转换器
-        converter = new BeanOutputConverter<>(
-                HalfMarathonPlan.class,
-                jsonMapper,  // 使用默认 ObjectMapper
-                new MarkdownCodeBlockCleaner()  // 自动剥离 Markdown 代码块
-        );
+                         ChatMemory chatMemory,
+                         ResilientConverter<HalfMarathonPlan> planConverter,
+                         StructuredOutputValidationAdvisor planValidationAdvisor) {
 
         this.weatherTools = weatherTools;
         this.profileAgent = profileAgent;
+        this.planConverter = planConverter;
+        this.planValidationAdvisor = planValidationAdvisor;
 
         // ---- 构建 RAG Advisor（替代已移除的 QuestionAnswerAdvisor）----
         RetrievalAugmentationAdvisor ragAdvisor = RetrievalAugmentationAdvisor.builder()
@@ -81,7 +77,7 @@ public class TrainingAgent {
                         请严格按照要求的 JSON 格式输出训练计划。
                         """)
                 .defaultTools(weatherTools)
-                .defaultAdvisors(memoryAdvisor, ragAdvisor)
+                .defaultAdvisors(memoryAdvisor, ragAdvisor, planValidationAdvisor)
                 .build();
     }
 
@@ -98,14 +94,14 @@ public class TrainingAgent {
                 用户请求：%s
                 
                 请基于以上用户画像和检索到的训练知识，生成一份完整的半马训练计划。
-                训练计划必须满足如下要求：1)训练强度合理，保证每周至少休息1天。休息日的workoutType强制为 'Rest Day'。2)本周总跑量增幅不超过上一周总跑量的10%%。
+                训练计划必须满足如下要求：1)训练强度合理，保证每周至少休息1天，休息日的workoutType必须为'休息'。2)本周总跑量增幅不超过上一周总跑量的10%%。
                 """, profileContext, userRequest);
 
         return trainingChatClient.prompt()
                 .user(fullPrompt)
                 .advisors(a -> a.param(ChatMemory.CONVERSATION_ID, userId))
                 .call()
-                .entity(converter, ChatClient.EntityParamSpec::validateSchema);
+                .entity(planConverter);
     }
 
     /**
@@ -127,7 +123,7 @@ public class TrainingAgent {
                         ## 用户画像
                         周跑量：%.1fkm，跑龄：%s
                         
-                        请修正上述问题，保持计划整体框架不变，只调整有问题的部分。
+                        请修正上述问题，保持计划整体框架不变，只调整有问题的部分。休息日的workoutType使用 'Rest Day'。
                         """,
                 String.join("\n", blockers),
                 originalPlan.planName(),
@@ -139,6 +135,6 @@ public class TrainingAgent {
                 .user(revisePrompt)
                 .advisors(a -> a.param(ChatMemory.CONVERSATION_ID, userId))
                 .call()
-                .entity(converter, ChatClient.EntityParamSpec::validateSchema);
+                .entity(planConverter, ChatClient.EntityParamSpec::validateSchema);
     }
 }

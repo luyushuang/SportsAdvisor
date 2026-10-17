@@ -3,7 +3,9 @@ package com.luyushuang.sportsadvisor.agent;
 import com.luyushuang.sportsadvisor.entity.HalfMarathonPlan;
 import com.luyushuang.sportsadvisor.entity.SafetyReviewResult;
 import com.luyushuang.sportsadvisor.entity.UserProfile;
+import com.luyushuang.sportsadvisor.util.ResilientConverter;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.client.advisor.StructuredOutputValidationAdvisor;
 import org.springframework.ai.converter.BeanOutputConverter;
 import org.springframework.stereotype.Service;
 
@@ -16,8 +18,15 @@ public class SafetyAgent {
 
     private final SafetyRuleEngine safetyRuleEngine;
 
-    public SafetyAgent(ChatClient.Builder builder, SafetyRuleEngine safetyRuleEngine) {
+    private final ResilientConverter<SafetyReviewResult> reviewConverter;
+    private final StructuredOutputValidationAdvisor safetyValidationAdvisor;
+
+    public SafetyAgent(ChatClient.Builder builder, SafetyRuleEngine safetyRuleEngine,
+                       ResilientConverter<SafetyReviewResult> reviewConverter,
+                       StructuredOutputValidationAdvisor safetyValidationAdvisor) {
         this.safetyRuleEngine = safetyRuleEngine;
+        this.reviewConverter = reviewConverter;
+        this.safetyValidationAdvisor = safetyValidationAdvisor;
         this.safetyChatClient = builder
                 .defaultSystem("""
                         你是一个运动安全审核专家。你的职责是审核半马训练计划是否安全合理。
@@ -36,6 +45,7 @@ public class SafetyAgent {
                         - 如果发现轻微问题（如休息日偏少），标记为 warning，建议但不阻断
                         - 如果没有问题，返回 approved=true
                         """)
+                .defaultAdvisors(safetyValidationAdvisor)
                 .build();
     }
 
@@ -46,9 +56,13 @@ public class SafetyAgent {
         // 先跑规则引擎
         List<String> ruleBlockers = safetyRuleEngine.checkRules(plan, profile);
 
-        System.out.println("--规则引擎运行结果：");
-        for (String str : ruleBlockers) {
-            System.out.println("----" + str);
+        if (ruleBlockers.isEmpty()) {
+            System.out.println("--规则引擎通过");
+        } else {
+            System.out.println("--规则引擎运行结果：");
+            for (String str : ruleBlockers) {
+                System.out.println("----" + str);
+            }
         }
 
         // 再交给 LLM 做综合审核
@@ -70,9 +84,9 @@ public class SafetyAgent {
                 profile.age(), profile.runningExperience(), profile.weeklyMileageKm(),
                 profile.injuryHistory().isEmpty() ? "无" : String.join("、", profile.injuryHistory()),
                 plan);
-//                new BeanOutputConverter<>(HalfMarathonPlan.class).convert(plan));
+        System.out.println("reviewPrompt: " + reviewPrompt);
 
         return safetyChatClient.prompt().user(reviewPrompt).call()
-                .entity(SafetyReviewResult.class, ChatClient.EntityParamSpec::validateSchema);
+                .entity(reviewConverter);
     }
 }
