@@ -41,7 +41,7 @@ public class StructuredOutputConfig {
     public StructuredOutputValidationAdvisor planValidationAdvisor() {
         return StructuredOutputValidationAdvisor.builder()
                 .outputType(HalfMarathonPlan.class) // 显式指定目标类型
-                .maxRepeatAttempts(3)               // 可选：自定义重试次数
+                .maxRepeatAttempts(2)               // 可选：自定义重试次数
                 .build();
     }
 
@@ -49,7 +49,7 @@ public class StructuredOutputConfig {
     public StructuredOutputValidationAdvisor safetyValidationAdvisor() {
         return StructuredOutputValidationAdvisor.builder()
                 .outputType(SafetyReviewResult.class)
-                .maxRepeatAttempts(3)
+                .maxRepeatAttempts(2)
                 .build();
     }
 }

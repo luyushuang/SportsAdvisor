@@ -153,7 +153,7 @@ public class TrainingAgent {
                         周跑量：%.1fkm，跑龄：%s
                         
                         请修正上述问题，保持计划整体框架不变，只调整有问题的部分。
-                        休息日的workoutType使用 'Rest Day'。按用户要求返回指定的训练周数。
+                        休息日的workoutType必须为'休息'。按用户要求返回指定的训练周数。
                         """,
                 String.join("\n", blockers),
                 originalPlan.planName(),
