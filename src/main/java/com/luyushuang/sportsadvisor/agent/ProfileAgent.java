@@ -2,7 +2,10 @@ package com.luyushuang.sportsadvisor.agent;
 
 import com.luyushuang.sportsadvisor.entity.ProfileUpdate;
 import com.luyushuang.sportsadvisor.entity.UserProfile;
+import com.luyushuang.sportsadvisor.obs.AgentMetrics;
 import com.luyushuang.sportsadvisor.persistence.UserProfileRepository;
+import io.micrometer.observation.Observation;
+import io.micrometer.observation.ObservationRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
@@ -28,9 +31,16 @@ public class ProfileAgent {
     private final ChatClient extractionChatClient;
     private final UserProfileRepository profileRepository;
 
+    private final AgentMetrics metrics;
+    private final ObservationRegistry observationRegistry;
+
     public ProfileAgent(ChatClient.Builder builder,
-                        UserProfileRepository profileRepository) {
+                        UserProfileRepository profileRepository,
+                        AgentMetrics metrics,
+                        ObservationRegistry observationRegistry) {
         this.profileRepository = profileRepository;
+        this.metrics = metrics;
+        this.observationRegistry = observationRegistry;
         // 提取专用的 ChatClient：不挂工具、不挂记忆、不挂 RAG
         this.extractionChatClient = builder
                 .defaultSystem("""
@@ -110,6 +120,15 @@ public class ProfileAgent {
      * 数值校验：丢弃明显越界的异常值，防止 LLM 提取错误污染画像。
      */
     private ProfileUpdate sanitize(ProfileUpdate u) {
+        boolean anyInvalid = !validInt(u.age(), 5, 120)
+                || !validDouble(u.weightKg(), 20, 300)
+                || !validInt(u.heightCm(), 100, 250)
+                || !validDouble(u.weeklyMileageKm(), 0, 500);
+
+        if (anyInvalid) {
+            metrics.recordProfileValidationFailed();
+        }
+
         return new ProfileUpdate(
                 validInt(u.age(), 5, 120) ? u.age() : null,
                 validDouble(u.weightKg(), 20, 300) ? u.weightKg() : null,
@@ -140,15 +159,53 @@ public class ProfileAgent {
      */
     public UserProfile extractAndUpdate(String userId, String userMessage) {
         if (userMessage == null || !PROFILE_KEYWORDS.matcher(userMessage).find()) {
+            metrics.recordProfileExtractionSkipped();
             return getProfile(userId);
         }
-        try {
-            ProfileUpdate update = extractFromConversation(userMessage);
-            return profileRepository.mergeAndSave(userId, update);
-        } catch (Exception e) {
-            log.warn("画像提取失败，userId={}，不影响主流程", userId, e);
-            return getProfile(userId);
-        }
+
+//        try {
+//            ProfileUpdate update = extractFromConversation(userMessage);
+//            return profileRepository.mergeAndSave(userId, update);
+//        } catch (Exception e) {
+//            log.warn("画像提取失败，userId={}，不影响主流程", userId, e);
+//            return getProfile(userId);
+//        }
+        return Observation.createNotStarted("sports.profile.extract", observationRegistry)
+                .lowCardinalityKeyValue("sports.agent", "profile")
+                .highCardinalityKeyValue("sports.user.id", userId)
+                .observe(() -> {
+                    long start = System.currentTimeMillis();
+                    try {
+                        ProfileUpdate update = extractFromConversation(userMessage);
+                        int fieldCount = countNonNullFields(update);
+
+                        UserProfile merged = profileRepository.mergeAndSave(userId, update);
+
+                        long duration = System.currentTimeMillis() - start;
+                        metrics.recordProfileExtraction(duration, fieldCount);
+                        return merged;
+
+                    } catch (Exception e) {
+                        metrics.recordProfileExtractionFailed();
+                        log.warn("画像提取失败，userId={}", userId, e);
+                        return getProfile(userId);
+                    }
+                });
+    }
+
+    private int countNonNullFields(ProfileUpdate update) {
+        int count = 0;
+        if (update.age() != null) count++;
+        if (update.weightKg() != null) count++;
+        if (update.heightCm() != null) count++;
+        if (update.runningExperience() != null) count++;
+        if (update.weeklyMileageKm() != null) count++;
+        if (update.bestHalfMarathonTime() != null) count++;
+        if (update.trainingGoal() != null) count++;
+        if (update.injuryHistory() != null && !update.injuryHistory().isEmpty()) count++;
+        if (update.preferredRunTime() != null) count++;
+        if (update.preferredTerrain() != null) count++;
+        return count;
     }
 
     /**

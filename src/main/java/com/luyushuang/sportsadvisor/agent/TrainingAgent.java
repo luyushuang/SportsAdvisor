@@ -2,23 +2,26 @@ package com.luyushuang.sportsadvisor.agent;
 
 import com.luyushuang.sportsadvisor.entity.HalfMarathonPlan;
 import com.luyushuang.sportsadvisor.entity.UserProfile;
+import com.luyushuang.sportsadvisor.obs.AgentMetrics;
+import com.luyushuang.sportsadvisor.obs.TrainingAdvisorObservationConvention;
 import com.luyushuang.sportsadvisor.tool.WeatherTools;
 import com.luyushuang.sportsadvisor.util.ResilientConverter;
+import io.micrometer.observation.Observation;
+import io.micrometer.observation.ObservationRegistry;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
 import org.springframework.ai.chat.client.advisor.StructuredOutputValidationAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
-import org.springframework.ai.converter.BeanOutputConverter;
-import org.springframework.ai.converter.MarkdownCodeBlockCleaner;
+import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.rag.advisor.RetrievalAugmentationAdvisor;
 import org.springframework.ai.rag.retrieval.search.VectorStoreDocumentRetriever;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.stereotype.Service;
-import tools.jackson.databind.DeserializationFeature;
-import tools.jackson.databind.json.JsonMapper;
 
 import java.util.List;
 
+@Slf4j
 @Service
 public class TrainingAgent {
 
@@ -27,19 +30,25 @@ public class TrainingAgent {
     private final ProfileAgent profileAgent;
     private final ResilientConverter<HalfMarathonPlan> planConverter;
     private final StructuredOutputValidationAdvisor planValidationAdvisor;
+    private final AgentMetrics metrics;
+    private final ObservationRegistry observationRegistry;
+    private final ChatModel chatModel;
 
-    public TrainingAgent(ChatClient.Builder builder,
-                         WeatherTools weatherTools,
+    public TrainingAgent(WeatherTools weatherTools,
                          ProfileAgent profileAgent,
                          VectorStore vectorStore,
                          ChatMemory chatMemory,
                          ResilientConverter<HalfMarathonPlan> planConverter,
-                         StructuredOutputValidationAdvisor planValidationAdvisor) {
+                         StructuredOutputValidationAdvisor planValidationAdvisor,
+                         AgentMetrics metrics,
+                         ObservationRegistry observationRegistry, ChatModel chatModel) {
 
         this.weatherTools = weatherTools;
         this.profileAgent = profileAgent;
         this.planConverter = planConverter;
         this.planValidationAdvisor = planValidationAdvisor;
+        this.metrics = metrics;
+        this.observationRegistry = observationRegistry;
 
         // ---- 构建 RAG Advisor（替代已移除的 QuestionAnswerAdvisor）----
         RetrievalAugmentationAdvisor ragAdvisor = RetrievalAugmentationAdvisor.builder()
@@ -58,7 +67,9 @@ public class TrainingAgent {
                 .build();
 
         // ---- 构建 TrainingAgent 专用的 ChatClient ----
-        this.trainingChatClient = builder
+        this.chatModel = chatModel;
+        this.trainingChatClient = ChatClient.builder(chatModel, observationRegistry,
+                        null, new TrainingAdvisorObservationConvention())
                 .defaultSystem("""
                         你是一个专业的半马训练计划制定专家，拥有运动科学和跑步训练的专业知识。
                         
@@ -94,14 +105,31 @@ public class TrainingAgent {
                 用户请求：%s
                 
                 请基于以上用户画像和检索到的训练知识，生成一份完整的半马训练计划。
-                训练计划必须满足如下要求：1)训练强度合理，保证每周至少休息1天，休息日的workoutType必须为'休息'。2)本周总跑量增幅不超过上一周总跑量的10%%。
                 """, profileContext, userRequest);
+//        训练计划必须满足如下要求：1)训练强度合理，保证每周至少休息1天，休息日的workoutType必须为'休息'。2)本周总跑量增幅不超过上一周总跑量的10%%。
+        log.debug("generatePrompt: {}", fullPrompt);
 
-        return trainingChatClient.prompt()
-                .user(fullPrompt)
-                .advisors(a -> a.param(ChatMemory.CONVERSATION_ID, userId))
-                .call()
-                .entity(planConverter);
+        return Observation.createNotStarted("sports.plan.generate", observationRegistry)
+                .lowCardinalityKeyValue("sports.agent", "training")
+                .highCardinalityKeyValue("sports.user.id", userId)
+                .observe(() -> {
+                    long start = System.currentTimeMillis();
+                    try {
+                        HalfMarathonPlan plan = trainingChatClient.prompt()
+                                .user(fullPrompt)
+                                .advisors(a -> a.param(ChatMemory.CONVERSATION_ID, userId))
+                                .call()
+                                .entity(planConverter);
+
+                        long duration = System.currentTimeMillis() - start;
+                        metrics.recordPlanGeneration(duration, plan.weeks().size());
+                        return plan;
+
+                    } catch (Exception e) {
+                        metrics.recordPlanGenerationFailed();
+                        throw e;
+                    }
+                });
     }
 
     /**
@@ -111,6 +139,7 @@ public class TrainingAgent {
                                        HalfMarathonPlan originalPlan,
                                        List<String> blockers,
                                        UserProfile profile) {
+        metrics.recordPlanRevisionTriggered();
         String revisePrompt = String.format("""
                         以下训练计划存在安全问题，请修正：
                         
@@ -123,13 +152,16 @@ public class TrainingAgent {
                         ## 用户画像
                         周跑量：%.1fkm，跑龄：%s
                         
-                        请修正上述问题，保持计划整体框架不变，只调整有问题的部分。休息日的workoutType使用 'Rest Day'。
+                        请修正上述问题，保持计划整体框架不变，只调整有问题的部分。
+                        休息日的workoutType使用 'Rest Day'。按用户要求返回指定的训练周数。
                         """,
                 String.join("\n", blockers),
                 originalPlan.planName(),
                 originalPlan.weeks().size(),
                 profile.weeklyMileageKm(),
                 profile.runningExperience());
+
+        log.debug("revisePrompt: {}", revisePrompt);
 
         return trainingChatClient.prompt()
                 .user(revisePrompt)

@@ -1,5 +1,6 @@
 package com.luyushuang.sportsadvisor.kb;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.reader.TextReader;
 import org.springframework.ai.transformer.splitter.TokenTextSplitter;
@@ -17,6 +18,7 @@ import org.springframework.stereotype.Component;
 import java.util.ArrayList;
 import java.util.List;
 
+@Slf4j
 @Component
 public class KnowledgeBaseLoader implements ApplicationRunner {
 
@@ -42,11 +44,11 @@ public class KnowledgeBaseLoader implements ApplicationRunner {
         String loadedVersion = redisTemplate.opsForValue().get(VERSION_KEY);
 
         if (knowledgeVersion.equals(loadedVersion)) {
-            System.out.println("知识库版本 [" + knowledgeVersion + "] 已加载，跳过");
+            log.info("知识库版本 [{}] 已加载，跳过...", loadedVersion);
             return;
         }
 
-        System.out.println("检测到知识库版本变化，开始加载...");
+        log.info("检测到知识库版本变化，旧版本: {}，新版本：{}，开始加载...", loadedVersion, knowledgeVersion);
 
         // 1. 清空旧数据（避免重复）
         // 只删除旧版本的文档
@@ -61,7 +63,7 @@ public class KnowledgeBaseLoader implements ApplicationRunner {
         // 4. 更新版本标记
         redisTemplate.opsForValue().set(VERSION_KEY, knowledgeVersion);
 
-        System.out.println("知识库加载完成，共 " + chunks.size() + " 个文档块");
+        log.info("知识库加载完成，共{}个文档块", chunks.size());
     }
 
     private void deleteOldVersion() {

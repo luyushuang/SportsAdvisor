@@ -4,6 +4,7 @@ import com.luyushuang.sportsadvisor.entity.HalfMarathonPlan;
 import com.luyushuang.sportsadvisor.entity.SafetyReviewResult;
 import com.luyushuang.sportsadvisor.entity.UserProfile;
 import com.luyushuang.sportsadvisor.util.ResilientConverter;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.StructuredOutputValidationAdvisor;
 import org.springframework.ai.converter.BeanOutputConverter;
@@ -11,6 +12,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 
+@Slf4j
 @Service
 public class SafetyAgent {
 
@@ -57,11 +59,12 @@ public class SafetyAgent {
         List<String> ruleBlockers = safetyRuleEngine.checkRules(plan, profile);
 
         if (ruleBlockers.isEmpty()) {
-            System.out.println("--规则引擎通过");
+            log.debug("--规则引擎通过");
         } else {
-            System.out.println("--规则引擎运行结果：");
+            log.debug("--规则引擎运行结果：");
+
             for (String str : ruleBlockers) {
-                System.out.println("----" + str);
+                log.debug("----blocker: {}", str);
             }
         }
 
@@ -84,7 +87,7 @@ public class SafetyAgent {
                 profile.age(), profile.runningExperience(), profile.weeklyMileageKm(),
                 profile.injuryHistory().isEmpty() ? "无" : String.join("、", profile.injuryHistory()),
                 plan);
-        System.out.println("reviewPrompt: " + reviewPrompt);
+        log.debug("reviewPrompt: {}", reviewPrompt);
 
         return safetyChatClient.prompt().user(reviewPrompt).call()
                 .entity(reviewConverter);

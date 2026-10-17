@@ -1,6 +1,7 @@
 package com.luyushuang.sportsadvisor.tool;
 
 import com.luyushuang.sportsadvisor.util.ChinaCityGeocoder;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
@@ -15,6 +16,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 
+@Slf4j
 @Component
 public class WeatherTools {
 
@@ -55,7 +57,7 @@ public class WeatherTools {
         double[] coords;
         try {
             coords = geocoder.resolve(city);
-            System.out.println("city=" + city + ", coords: " + coords[0] + ", " + coords[1]);
+            log.info("city={}, coords: {}, {}", city, coords[0], coords[1]);
         } catch (Exception e) {
             return "错误：无法解析城市坐标——" + e.getMessage();
         }

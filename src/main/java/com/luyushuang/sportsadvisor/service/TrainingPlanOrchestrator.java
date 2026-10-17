@@ -8,8 +8,11 @@ import com.luyushuang.sportsadvisor.entity.SafetyReviewResult;
 import com.luyushuang.sportsadvisor.entity.UserProfile;
 import com.luyushuang.sportsadvisor.persistence.UserProfileRepository;
 import com.luyushuang.sportsadvisor.tool.WeatherTools;
+import com.luyushuang.sportsadvisor.util.JsonUtils;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+@Slf4j
 @Service
 public class TrainingPlanOrchestrator {
 
@@ -36,7 +39,7 @@ public class TrainingPlanOrchestrator {
      * 编排完整的训练计划生成流程
      */
     public TrainingPlanResponse createPlan(String userId, String userRequest) {
-        System.out.println("开始查询用户profile，没有的话进行信息提取");
+        log.debug("开始查询用户profile，没有的话进行信息提取");
         // Step 1: 画像检查
         // 触发画像自动提取（从本次请求中提取）
         UserProfile userProfile = profileAgent.extractAndUpdate(userId, userRequest);
@@ -50,18 +53,19 @@ public class TrainingPlanOrchestrator {
             );
         }
 
-        System.out.println("已完成用户profile提取，开始生成训练计划: " + userProfile.toString());
-
+        log.debug("已完成用户profile提取，profile={}", JsonUtils.toJson(userProfile));
+        log.debug("开始生成训练计划 ...");
         // Step 2: 生成计划
         HalfMarathonPlan plan = trainingAgent.generatePlan(userId, userRequest);
 
-        System.out.println("已生成计划，进行安全审核: " + plan.toString());
+        log.debug("已经生成训练计划：{}", JsonUtils.toJson(plan));
+        log.debug("开始安全审核 ...");
 
         // Step 3: 安全审核 + 自动修正循环
         for (int round = 0; round < MAX_REVISION_ROUNDS; round++) {
-            System.out.println("第" + (round + 1) + "轮审核：");
+            log.debug("第{}轮审核：", round + 1);
             SafetyReviewResult review = safetyAgent.review(plan, userProfile);
-            System.out.println("-- review result: " + review.toString());
+            log.debug("-- review result: {}", JsonUtils.toJson(review));
 
             if (review.approved()) {
                 return new TrainingPlanResponse("approved",
@@ -74,12 +78,13 @@ public class TrainingPlanOrchestrator {
                         "计划已生成。请注意以下提醒：", plan, review.warnings());
             }
 
+            log.debug("有阻断性问题，让 Training Agent 根据审核意见修正");
             // 有阻断性问题，让 Training Agent 根据审核意见修正
             plan = trainingAgent.revisePlan(userId, plan, review.blockers(), userProfile);
-            System.out.println("revised plan: " + plan.toString());
+            log.debug("第{}次修改完成，revised plan: {}", round + 1, JsonUtils.toJson(plan));
         }
 
-        System.out.println("完成计划审核，返回");
+        log.debug("完成计划审核，返回");
 
         // 超过修正轮数仍未通过，返回阻断状态
         return new TrainingPlanResponse("blocked",
