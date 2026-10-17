@@ -135,6 +135,6 @@ public class TrainingAgent {
                 .user(revisePrompt)
                 .advisors(a -> a.param(ChatMemory.CONVERSATION_ID, userId))
                 .call()
-                .entity(planConverter, ChatClient.EntityParamSpec::validateSchema);
+                .entity(planConverter);
     }
 }
