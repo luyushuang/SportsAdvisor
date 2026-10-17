@@ -47,7 +47,7 @@ public class SafetyAgent {
         List<String> ruleBlockers = safetyRuleEngine.checkRules(plan, profile);
 
         System.out.println("--规则引擎运行结果：");
-        for (String str: ruleBlockers) {
+        for (String str : ruleBlockers) {
             System.out.println("----" + str);
         }
 
@@ -73,6 +73,6 @@ public class SafetyAgent {
 //                new BeanOutputConverter<>(HalfMarathonPlan.class).convert(plan));
 
         return safetyChatClient.prompt().user(reviewPrompt).call()
-                .entity(SafetyReviewResult.class);
+                .entity(SafetyReviewResult.class, ChatClient.EntityParamSpec::validateSchema);
     }
 }

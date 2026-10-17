@@ -12,6 +12,8 @@ import org.springframework.ai.rag.advisor.RetrievalAugmentationAdvisor;
 import org.springframework.ai.rag.retrieval.search.VectorStoreDocumentRetriever;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.stereotype.Service;
+import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.util.List;
 
@@ -21,12 +23,24 @@ public class TrainingAgent {
     private final ChatClient trainingChatClient;
     private final WeatherTools weatherTools;
     private final ProfileAgent profileAgent;
+    private final BeanOutputConverter<HalfMarathonPlan> converter;
 
     public TrainingAgent(ChatClient.Builder builder,
                          WeatherTools weatherTools,
                          ProfileAgent profileAgent,
                          VectorStore vectorStore,
                          ChatMemory chatMemory) {
+
+        JsonMapper jsonMapper = JsonMapper.builder()
+                .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
+                .build();
+
+        // 创建带 Markdown 清洗的转换器
+        converter = new BeanOutputConverter<>(
+                HalfMarathonPlan.class,
+                jsonMapper,  // 使用默认 ObjectMapper
+                new MarkdownCodeBlockCleaner()  // 自动剥离 Markdown 代码块
+        );
 
         this.weatherTools = weatherTools;
         this.profileAgent = profileAgent;
@@ -77,14 +91,6 @@ public class TrainingAgent {
     public HalfMarathonPlan generatePlan(String userId, String userRequest) {
         String profileContext = profileAgent.buildProfileContext(userId);
 
-        // 创建带 Markdown 清洗的转换器
-        BeanOutputConverter<HalfMarathonPlan> converter =
-                new BeanOutputConverter<>(
-                        HalfMarathonPlan.class,
-                        null,  // 使用默认 ObjectMapper
-                        new MarkdownCodeBlockCleaner()  // 自动剥离 Markdown 代码块
-                );
-
         String fullPrompt = String.format("""
                 用户画像信息：
                 %s
@@ -92,13 +98,14 @@ public class TrainingAgent {
                 用户请求：%s
                 
                 请基于以上用户画像和检索到的训练知识，生成一份完整的半马训练计划。
+                训练计划必须满足如下要求：1)训练强度合理，保证每周至少休息1天。休息日的workoutType强制为 'Rest Day'。2)本周总跑量增幅不超过上一周总跑量的10%%。
                 """, profileContext, userRequest);
 
         return trainingChatClient.prompt()
                 .user(fullPrompt)
                 .advisors(a -> a.param(ChatMemory.CONVERSATION_ID, userId))
                 .call()
-                .entity(converter);
+                .entity(converter, ChatClient.EntityParamSpec::validateSchema);
     }
 
     /**
@@ -132,6 +139,6 @@ public class TrainingAgent {
                 .user(revisePrompt)
                 .advisors(a -> a.param(ChatMemory.CONVERSATION_ID, userId))
                 .call()
-                .entity(HalfMarathonPlan.class, spec -> spec.validateSchema());
+                .entity(converter, ChatClient.EntityParamSpec::validateSchema);
     }
 }

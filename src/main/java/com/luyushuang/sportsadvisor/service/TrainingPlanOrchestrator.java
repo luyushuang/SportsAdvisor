@@ -59,8 +59,9 @@ public class TrainingPlanOrchestrator {
 
         // Step 3: 安全审核 + 自动修正循环
         for (int round = 0; round < MAX_REVISION_ROUNDS; round++) {
+            System.out.println("第" + (round + 1) + "轮审核：");
             SafetyReviewResult review = safetyAgent.review(plan, userProfile);
-            System.out.println("review result: " + review.toString());
+            System.out.println("-- review result: " + review.toString());
 
             if (review.approved()) {
                 return new TrainingPlanResponse("approved",
@@ -75,6 +76,7 @@ public class TrainingPlanOrchestrator {
 
             // 有阻断性问题，让 Training Agent 根据审核意见修正
             plan = trainingAgent.revisePlan(userId, plan, review.blockers(), userProfile);
+            System.out.println("revised plan: " + plan.toString());
         }
 
         System.out.println("完成计划审核，返回");

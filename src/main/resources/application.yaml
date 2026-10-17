@@ -6,7 +6,7 @@ spring:
       base-url: http://localhost:11434
       api-key: sk-8617d964572141eba7fd36b4c256a23c
       chat:
-        model: qwen2.5:3b-opt-v3
+        model: qwen2.5:1.5b-opt
       embedding:
         model: mxbai-embed-large   # 确保名称与 ollama list 中显示的一致
     #    vectorstore:
