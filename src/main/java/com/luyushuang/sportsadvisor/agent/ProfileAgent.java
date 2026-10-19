@@ -6,8 +6,7 @@ import com.luyushuang.sportsadvisor.obs.AgentMetrics;
 import com.luyushuang.sportsadvisor.persistence.UserProfileRepository;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
@@ -15,10 +14,9 @@ import org.springframework.stereotype.Service;
 import java.util.concurrent.CompletableFuture;
 import java.util.regex.Pattern;
 
+@Slf4j
 @Service
 public class ProfileAgent {
-
-    private static final Logger log = LoggerFactory.getLogger(ProfileAgent.class);
 
     /**
      * 触发提取的关键词，避免无意义的 LLM 调用
@@ -60,8 +58,59 @@ public class ProfileAgent {
                 .build();
     }
 
-    // ==================== 读取 ====================
+    // ==================== 提取 + 合并 + 持久化 ====================
 
+    /**
+     * 一站式入口：提取 + 合并 + 持久化。
+     * 如果消息中不包含画像关键词，快速跳过，不调用 LLM。
+     */
+    public UserProfile extractAndUpdate(String userId, String userMessage) {
+        if (userMessage == null || !PROFILE_KEYWORDS.matcher(userMessage).find()) {
+            metrics.recordProfileExtractionSkipped();
+            return getProfile(userId);
+        }
+
+        return Observation.createNotStarted("sports.profile.extract", observationRegistry)
+                .lowCardinalityKeyValue("sports.agent", "profile")
+                .highCardinalityKeyValue("sports.user.id", userId)
+                .observe(() -> {
+                    long start = System.currentTimeMillis();
+                    try {
+                        ProfileUpdate update = extractFromConversation(userMessage);
+                        int fieldCount = countNonNullFields(update);
+
+                        UserProfile merged = profileRepository.mergeAndSave(userId, update);
+
+                        long duration = System.currentTimeMillis() - start;
+                        metrics.recordProfileExtraction(duration, fieldCount);
+                        return merged;
+
+                    } catch (Exception e) {
+                        metrics.recordProfileExtractionFailed();
+                        log.warn("画像提取失败，userId={}", userId, e);
+                        return getProfile(userId);
+                    }
+                });
+    }
+
+    /**
+     * 异步版本：用于对话结束后的持续积累，不阻塞用户响应。
+     */
+    @Async("profileExtractionExecutor")
+    public CompletableFuture<UserProfile> extractAndUpdateAsync(String userId, String userMessage) {
+        return CompletableFuture.completedFuture(extractAndUpdate(userId, userMessage));
+    }
+
+    // ==================== 用户主动更新 ====================
+
+    /**
+     * 用户通过表单或显式指令直接更新画像。
+     */
+    public UserProfile updateProfile(String userId, UserProfile profile) {
+        return profileRepository.save(profile);
+    }
+
+    // ==================== 读取 ====================
     /**
      * 读取画像并格式化为自然语言，用于注入 System Prompt。
      */
@@ -74,7 +123,7 @@ public class ProfileAgent {
     /**
      * 读取原始画像对象，供编排器判断是否足够生成计划。
      */
-    public UserProfile getProfile(String userId) {
+    private UserProfile getProfile(String userId) {
         return profileRepository.findById(userId).orElse(null);
     }
 
@@ -106,7 +155,7 @@ public class ProfileAgent {
     /**
      * 从单条用户消息中提取结构化信息（纯函数，不涉及持久化）。
      */
-    public ProfileUpdate extractFromConversation(String userMessage) {
+    private ProfileUpdate extractFromConversation(String userMessage) {
         ProfileUpdate update = extractionChatClient.prompt()
                 .user(userMessage)
                 .call()
@@ -151,48 +200,6 @@ public class ProfileAgent {
         return v == null || (v >= min && v <= max);
     }
 
-    // ==================== 提取 + 合并 + 持久化 ====================
-
-    /**
-     * 一站式入口：提取 + 合并 + 持久化。
-     * 如果消息中不包含画像关键词，快速跳过，不调用 LLM。
-     */
-    public UserProfile extractAndUpdate(String userId, String userMessage) {
-        if (userMessage == null || !PROFILE_KEYWORDS.matcher(userMessage).find()) {
-            metrics.recordProfileExtractionSkipped();
-            return getProfile(userId);
-        }
-
-//        try {
-//            ProfileUpdate update = extractFromConversation(userMessage);
-//            return profileRepository.mergeAndSave(userId, update);
-//        } catch (Exception e) {
-//            log.warn("画像提取失败，userId={}，不影响主流程", userId, e);
-//            return getProfile(userId);
-//        }
-        return Observation.createNotStarted("sports.profile.extract", observationRegistry)
-                .lowCardinalityKeyValue("sports.agent", "profile")
-                .highCardinalityKeyValue("sports.user.id", userId)
-                .observe(() -> {
-                    long start = System.currentTimeMillis();
-                    try {
-                        ProfileUpdate update = extractFromConversation(userMessage);
-                        int fieldCount = countNonNullFields(update);
-
-                        UserProfile merged = profileRepository.mergeAndSave(userId, update);
-
-                        long duration = System.currentTimeMillis() - start;
-                        metrics.recordProfileExtraction(duration, fieldCount);
-                        return merged;
-
-                    } catch (Exception e) {
-                        metrics.recordProfileExtractionFailed();
-                        log.warn("画像提取失败，userId={}", userId, e);
-                        return getProfile(userId);
-                    }
-                });
-    }
-
     private int countNonNullFields(ProfileUpdate update) {
         int count = 0;
         if (update.age() != null) count++;
@@ -206,22 +213,5 @@ public class ProfileAgent {
         if (update.preferredRunTime() != null) count++;
         if (update.preferredTerrain() != null) count++;
         return count;
-    }
-
-    /**
-     * 异步版本：用于对话结束后的持续积累，不阻塞用户响应。
-     */
-    @Async("profileExtractionExecutor")
-    public CompletableFuture<UserProfile> extractAndUpdateAsync(String userId, String userMessage) {
-        return CompletableFuture.completedFuture(extractAndUpdate(userId, userMessage));
-    }
-
-    // ==================== 用户主动更新 ====================
-
-    /**
-     * 用户通过表单或显式指令直接更新画像。
-     */
-    public UserProfile updateProfile(String userId, UserProfile profile) {
-        return profileRepository.save(profile);
     }
 }
