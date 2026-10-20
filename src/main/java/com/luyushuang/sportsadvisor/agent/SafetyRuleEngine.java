@@ -29,8 +29,8 @@ public class SafetyRuleEngine {
         // 规则2：每周至少 1 天完全休息
         for (TrainingWeek week : plan.weeks()) {
             long restDays = week.days().stream()
-                    .filter(d -> "Rest Day".equalsIgnoreCase(d.workoutType())
-                            || (d.workoutType() != null && d.workoutType().contains("休息")))
+                    .filter(d -> d.workoutType() != null &&
+                            (d.workoutType().contains("Rest Day") || d.workoutType().contains("休息")))
                     .count();
             if (restDays == 0) {
                 blockers.add(String.format("第 %d 周没有安排休息日", week.weekNumber()));

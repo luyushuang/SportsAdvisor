@@ -5,7 +5,9 @@ import com.luyushuang.sportsadvisor.entity.UserProfile;
 import com.luyushuang.sportsadvisor.obs.AgentMetrics;
 import com.luyushuang.sportsadvisor.obs.TrainingAdvisorObservationConvention;
 import com.luyushuang.sportsadvisor.tool.WeatherTools;
+import com.luyushuang.sportsadvisor.util.PromptLoggingAdvisor;
 import com.luyushuang.sportsadvisor.util.ResilientConverter;
+import com.luyushuang.sportsadvisor.util.TrainingPrompts;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
 import lombok.extern.slf4j.Slf4j;
@@ -26,6 +28,7 @@ import java.util.List;
 public class TrainingAgent {
 
     private final ChatClient trainingChatClient;
+    private final ChatClient reviseChatClient;
     private final WeatherTools weatherTools;
     private final ProfileAgent profileAgent;
     private final ResilientConverter<HalfMarathonPlan> planConverter;
@@ -58,8 +61,7 @@ public class TrainingAgent {
                                 .similarityThreshold(0.65)
                                 .topK(8)
                                 .build()
-                )
-                .build();
+                ).build();
 
         // ---- 构建 ChatMemory Advisor ----
         MessageChatMemoryAdvisor memoryAdvisor = MessageChatMemoryAdvisor
@@ -70,26 +72,17 @@ public class TrainingAgent {
         this.chatModel = chatModel;
         this.trainingChatClient = ChatClient.builder(chatModel, observationRegistry,
                         null, new TrainingAdvisorObservationConvention())
-                .defaultSystem("""
-                        你是一个专业的半马训练计划制定专家，拥有运动科学和跑步训练的专业知识。
-                        
-                        ## 你的任务
-                        根据用户画像、环境信息和检索到的运动科学知识，制定个性化的半马训练计划。
-                        
-                        ## 制定原则
-                        1. 训练计划必须基于用户当前周跑量和跑龄，遵循"10%原则"（每周跑量增量不超过上周10%）
-                        2. 必须包含以下训练类型：轻松跑(Easy Run)、长距离跑(Long Run)、间歇跑(Interval)、
-                           恢复跑(Recovery Run)、交叉训练(Cross Training)、休息日(Rest Day)
-                        3. 必须引用知识库中检索到的具体训练方法和配速计算方式
-                        4. 如果用户有伤病历史，必须在计划中体现预防措施
-                        5. 结合天气数据，在极端天气日建议室内训练
-                        
-                        ## 输出格式
-                        请严格按照要求的 JSON 格式输出训练计划。
-                        """)
+                .defaultSystem(TrainingPrompts.GENERATE_SYSTEM)
                 .defaultTools(weatherTools)
-                .defaultAdvisors(memoryAdvisor, ragAdvisor, planValidationAdvisor)
+                .defaultAdvisors(new PromptLoggingAdvisor(), memoryAdvisor, ragAdvisor, planValidationAdvisor)
                 .build();
+        this.reviseChatClient = ChatClient.builder(chatModel, observationRegistry,
+                        null, new TrainingAdvisorObservationConvention())
+                .defaultSystem(TrainingPrompts.REVISE_SYSTEM)
+                .defaultTools(weatherTools)
+                .defaultAdvisors(new PromptLoggingAdvisor(), ragAdvisor, planValidationAdvisor)
+                .build();
+
     }
 
     /**
@@ -153,7 +146,6 @@ public class TrainingAgent {
                         周跑量：%.1fkm，跑龄：%s
                         
                         请修正上述问题，保持计划整体框架不变，只调整有问题的部分。
-                        休息日的workoutType必须为'休息'。按用户要求返回指定的训练周数。
                         """,
                 String.join("\n", blockers),
                 originalPlan.planName(),
@@ -163,9 +155,8 @@ public class TrainingAgent {
 
         log.debug("revisePrompt: {}", revisePrompt);
 
-        return trainingChatClient.prompt()
+        return reviseChatClient.prompt()
                 .user(revisePrompt)
-                .advisors(a -> a.param(ChatMemory.CONVERSATION_ID, userId))
                 .call()
                 .entity(planConverter);
     }

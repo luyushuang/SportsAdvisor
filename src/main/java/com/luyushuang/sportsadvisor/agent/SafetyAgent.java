@@ -3,6 +3,7 @@ package com.luyushuang.sportsadvisor.agent;
 import com.luyushuang.sportsadvisor.entity.HalfMarathonPlan;
 import com.luyushuang.sportsadvisor.entity.SafetyReviewResult;
 import com.luyushuang.sportsadvisor.entity.UserProfile;
+import com.luyushuang.sportsadvisor.util.PromptLoggingAdvisor;
 import com.luyushuang.sportsadvisor.util.ResilientConverter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
@@ -47,7 +48,7 @@ public class SafetyAgent {
                         - 如果发现轻微问题（如休息日偏少），标记为 warning，建议但不阻断
                         - 如果没有问题，返回 approved=true
                         """)
-                .defaultAdvisors(safetyValidationAdvisor)
+                .defaultAdvisors(new PromptLoggingAdvisor(), safetyValidationAdvisor)
                 .build();
     }
 

@@ -4,10 +4,13 @@ import com.luyushuang.sportsadvisor.entity.ProfileUpdate;
 import com.luyushuang.sportsadvisor.entity.UserProfile;
 import com.luyushuang.sportsadvisor.obs.AgentMetrics;
 import com.luyushuang.sportsadvisor.persistence.UserProfileRepository;
+import com.luyushuang.sportsadvisor.util.JsonUtils;
+import com.luyushuang.sportsadvisor.util.PromptLoggingAdvisor;
 import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
@@ -55,6 +58,8 @@ public class ProfileAgent {
                         输入："我30岁，跑龄2年，周跑量30公里"
                         输出：{age: 30, runningExperience: "2年", weeklyMileageKm: 30.0, 其余为 null}
                         """)
+                .defaultOptions(ChatOptions.builder().temperature(0.0))
+                .defaultAdvisors(new PromptLoggingAdvisor())
                 .build();
     }
 
@@ -160,7 +165,7 @@ public class ProfileAgent {
                 .user(userMessage)
                 .call()
                 .entity(ProfileUpdate.class);
-
+        log.info("提取到的用户信息：{}", JsonUtils.toJson(update));
         assert update != null;
         return sanitize(update);
     }

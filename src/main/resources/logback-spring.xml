@@ -37,6 +37,7 @@
     <!-- 降低框架噪音 -->
     <logger name="org.springframework" level="WARN"/>
     <logger name="org.mybatis" level="WARN"/>
+    <logger name="spring.ai.chat" level="DEBUG"/>
 
     <!-- 为 org.jboss.logging 配置 Logger，通常设为 WARN 或 ERROR 级别即可 -->
     <logger name="org.jboss.logging" level="WARN" additivity="false">
